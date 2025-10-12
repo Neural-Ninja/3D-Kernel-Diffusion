@@ -1,0 +1,55 @@
+dataset:
+  modality: "t1c"
+  input_folder: "Data/BraTS"
+  output_folder: "Data/Preprocessed-Data"
+
+processing:
+  variants_per_volume: 5
+  min_variants: 3
+  max_variants: 5
+
+corruption_probs:
+  slice_removal_prob: 0.85
+  noise_prob: 0.75
+  frequency_corruption_prob: 0.1
+  motion_artifact_prob: 0.05
+  bias_field_prob: 0.02
+
+severity_distribution:
+  mild: 0.2
+  moderate: 0.5
+  severe: 0.3
+
+severity_configs:
+  mild:
+    slice_removal_range: [3, 6]
+    noise_std_range: [0.015, 0.04]
+    n_noise_regions: [2, 4]
+    motion_severity: 0.6
+    bias_field_strength: 0.2
+    freq_corruption_intensity: 0.25
+
+  moderate:
+    slice_removal_range: [6, 12]
+    noise_std_range: [0.04, 0.10]
+    n_noise_regions: [4, 8]
+    motion_severity: 1.2
+    bias_field_strength: 0.4
+    freq_corruption_intensity: 0.45
+    
+  severe:
+    slice_removal_range: [12, 20]
+    noise_std_range: [0.10, 0.25]
+    n_noise_regions: [6, 15]
+    motion_severity: 2.0
+    bias_field_strength: 0.65
+    freq_corruption_intensity: 0.65
+
+output_structure:
+  create_subfolders: true
+  naming_format: "{vol_id}_{severity}_{variant_idx}"
+  save_metadata: true
+
+random_seed:
+  use_fixed_seed: false
+  base_seed: 42
