@@ -98,28 +98,33 @@ class ConvBlock3D(nn.Module):
 
 
 class HybridBlock(nn.Module):
-    def __init__(self, channels, num_heads=8):
+    def __init__(self, channels, num_heads=8, use_checkpoint=False):
         super().__init__()
         self.conv = ConvBlock3D(channels, channels)
         self.transformer = TransformerBlock3D(channels, num_heads)
         self.fusion = nn.Conv3d(channels * 2, channels, 1)
+        self.use_checkpoint = use_checkpoint
         
     def forward(self, x):
-        conv_out = self.conv(x)
-        trans_out = self.transformer(x)
+        if self.use_checkpoint and self.training:
+            conv_out = torch.utils.checkpoint.checkpoint(self.conv, x, use_reentrant=False)
+            trans_out = torch.utils.checkpoint.checkpoint(self.transformer, x, use_reentrant=False)
+        else:
+            conv_out = self.conv(x)
+            trans_out = self.transformer(x)
         fused = self.fusion(torch.cat([conv_out, trans_out], dim=1))
         return fused + x
 
 
 class CorruptionDetector(nn.Module):
-    def __init__(self, in_channels=1, base_channels=64, num_blocks=4):
+    def __init__(self, in_channels=1, base_channels=64, num_blocks=4, use_checkpoint=False):
         super().__init__()
         
         self.input_proj = nn.Conv3d(in_channels, base_channels, 3, padding=1)
         self.pos_encoding = PositionalEncoding3D(base_channels)
         
         self.encoder_blocks = nn.ModuleList([
-            HybridBlock(base_channels * (2**i), num_heads=8)
+            HybridBlock(base_channels * (2**i), num_heads=8, use_checkpoint=use_checkpoint)
             for i in range(num_blocks)
         ])
         
@@ -141,7 +146,7 @@ class CorruptionDetector(nn.Module):
         ])
         
         self.decoder_blocks = nn.ModuleList([
-            HybridBlock(channels_list[num_blocks-2-i], num_heads=8)
+            HybridBlock(channels_list[num_blocks-2-i], num_heads=8, use_checkpoint=use_checkpoint)
             for i in range(num_blocks-1)
         ])
         
@@ -149,8 +154,7 @@ class CorruptionDetector(nn.Module):
             nn.Conv3d(base_channels, base_channels, 3, padding=1),
             nn.GroupNorm(8, base_channels),
             nn.GELU(),
-            nn.Conv3d(base_channels, 1, 1),
-            nn.Sigmoid()
+            nn.Conv3d(base_channels, 1, 1)
         )
         
     def forward(self, x):

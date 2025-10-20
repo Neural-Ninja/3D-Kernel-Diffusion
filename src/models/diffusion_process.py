@@ -4,8 +4,9 @@ import torch.nn.functional as F
 import numpy as np
 
 
-class DiffusionProcess:
+class DiffusionProcess(nn.Module):
     def __init__(self, num_timesteps=1000, beta_start=0.0001, beta_end=0.02, schedule='linear'):
+        super().__init__()
         self.num_timesteps = num_timesteps
         
         if schedule == 'linear':
@@ -33,9 +34,6 @@ class DiffusionProcess:
         self.register_buffer('sqrt_recip_alphas', torch.sqrt(1.0 / alphas))
         self.register_buffer('posterior_variance', betas * (1.0 - alphas_cumprod_prev) / (1.0 - alphas_cumprod))
     
-    def register_buffer(self, name, tensor):
-        setattr(self, name, tensor)
-    
     def q_sample(self, x_start, t, noise=None):
         if noise is None:
             noise = torch.randn_like(x_start)
@@ -62,10 +60,20 @@ class DiffusionProcess:
             return model_mean + torch.sqrt(posterior_variance_t) * noise
     
     @torch.no_grad()
-    def p_sample_loop(self, model, shape, corrupted, mask, device):
+    def p_sample_loop(self, model, shape, corrupted, mask, device, num_inference_steps=None):
         x = torch.randn(shape, device=device)
         
-        for i in reversed(range(self.num_timesteps)):
+        if num_inference_steps is None:
+            num_inference_steps = self.num_timesteps
+        
+        if num_inference_steps < self.num_timesteps:
+            step_size = self.num_timesteps // num_inference_steps
+            timesteps = list(range(0, self.num_timesteps, step_size))[:num_inference_steps]
+            timesteps = sorted(timesteps, reverse=True)
+        else:
+            timesteps = list(reversed(range(self.num_timesteps)))
+        
+        for i in timesteps:
             t = torch.full((shape[0],), i, device=device, dtype=torch.long)
             x = self.p_sample(model, x, t, corrupted, mask)
         

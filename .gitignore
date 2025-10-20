@@ -1,4 +1,6 @@
 Data/
 ZTemp/
+results/
 README.md
 test_model.py
+temp.ipynb

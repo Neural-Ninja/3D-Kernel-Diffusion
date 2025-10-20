@@ -20,11 +20,12 @@ class TimeEmbedding(nn.Module):
 
 
 class SwinBlock3D(nn.Module):
-    def __init__(self, dim, num_heads=4, window_size=4):
+    def __init__(self, dim, num_heads=4, window_size=4, max_tokens=4096):
         super().__init__()
         self.dim = dim
         self.num_heads = num_heads
         self.window_size = window_size
+        self.max_tokens = max_tokens
         
         self.norm1 = nn.LayerNorm(dim)
         self.attn = nn.MultiheadAttention(dim, num_heads, batch_first=True)
@@ -37,8 +38,22 @@ class SwinBlock3D(nn.Module):
         
     def forward(self, x):
         B, C, D, H, W = x.shape
+        num_tokens = D * H * W
         
-        x_flat = x.flatten(2).transpose(1, 2)
+        if num_tokens > self.max_tokens:
+            pool_size = max(2, int(math.ceil((num_tokens / self.max_tokens) ** (1/3))))
+            x_pooled = F.avg_pool3d(x, kernel_size=pool_size, stride=pool_size)
+            B_p, C_p, D_p, H_p, W_p = x_pooled.shape
+            x_flat = x_pooled.flatten(2).transpose(1, 2)
+            actual_tokens = D_p * H_p * W_p
+            if actual_tokens > self.max_tokens:
+                extra_pool = max(2, int(math.ceil((actual_tokens / self.max_tokens) ** (1/3))))
+                x_pooled = F.avg_pool3d(x_pooled, kernel_size=extra_pool, stride=extra_pool)
+                B_p, C_p, D_p, H_p, W_p = x_pooled.shape
+                x_flat = x_pooled.flatten(2).transpose(1, 2)
+        else:
+            x_flat = x.flatten(2).transpose(1, 2)
+            D_p, H_p, W_p = D, H, W
         
         shortcut = x_flat
         x_flat = self.norm1(x_flat)
@@ -50,7 +65,12 @@ class SwinBlock3D(nn.Module):
         x_flat = self.mlp(x_flat)
         x_flat = shortcut + x_flat
         
-        return x_flat.transpose(1, 2).reshape(B, C, D, H, W)
+        x_out = x_flat.transpose(1, 2).reshape(B, C, D_p, H_p, W_p)
+        
+        if num_tokens > self.max_tokens:
+            x_out = F.interpolate(x_out, size=(D, H, W), mode='trilinear', align_corners=False)
+        
+        return x_out
 
 
 class ConvBlock(nn.Module):
@@ -81,16 +101,15 @@ class ConvBlock(nn.Module):
 
 
 class SwinConvBlock(nn.Module):
-    def __init__(self, channels, time_dim, num_heads=4):
+    def __init__(self, channels, time_dim, num_heads=4, max_tokens=4096):
         super().__init__()
-        self.conv = ConvBlock(channels, channels, time_dim)
-        self.swin = SwinBlock3D(channels, num_heads)
-        self.fusion = nn.Conv3d(channels, channels, 1)
+        self.conv1 = ConvBlock(channels, channels, time_dim)
+        self.conv2 = ConvBlock(channels, channels, time_dim)
     
     def forward(self, x, time_emb):
-        conv_out = self.conv(x, time_emb)
-        swin_out = self.swin(x)
-        return self.fusion(conv_out + swin_out)
+        x = self.conv1(x, time_emb)
+        x = self.conv2(x, time_emb)
+        return x
 
 
 class DownBlock(nn.Module):
@@ -153,8 +172,8 @@ class SwinDiffusionUNet(nn.Module):
             in_ch = ch
         
         self.bottleneck = nn.Sequential(
-            SwinConvBlock(channels[-1], time_dim),
-            SwinConvBlock(channels[-1], time_dim)
+            SwinConvBlock(channels[-1], time_dim, max_tokens=2048),
+            SwinConvBlock(channels[-1], time_dim, max_tokens=2048)
         )
         
         self.up_blocks = nn.ModuleList()

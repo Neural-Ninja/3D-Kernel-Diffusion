@@ -5,10 +5,10 @@ data:
   pin_memory: true
 
 model:
-  detector_channels: 64
-  detector_blocks: 4
-  diffusion_channels: 64
-  diffusion_depths: [2, 2, 2]
+  detector_channels: 24
+  detector_blocks: 2
+  diffusion_channels: 24
+  diffusion_depths: [2]
   num_timesteps: 1000
   beta_schedule: "cosine"
   use_pretrained: false
@@ -19,6 +19,13 @@ training:
   batch_size: 1
   num_epochs: 100
   save_dir: "checkpoints"
+  use_amp: true
+  gradient_checkpointing: true
+  clear_cache_freq: 1
+  gpu_ids: [0]
+  use_data_parallel: false
+  gradient_accumulation_steps: 4
+  max_val_batches: 10
   
   loss_weights:
     diffusion: 1.0
@@ -34,3 +41,10 @@ scheduler:
   type: "cosine"
   warmup_epochs: 10
   min_lr: 0.00001
+
+inference:
+  checkpoint: "checkpoints/best_model.pth"
+  num_steps: 200
+  output_dir: "results"
+  save_mask: true
+  save_corrupted: true

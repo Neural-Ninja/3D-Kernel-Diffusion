@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from .corruption_detector import CorruptionDetector
 from .swin_diffusion import SwinDiffusionUNet
 from .diffusion_process import DiffusionProcess
@@ -16,7 +17,8 @@ class ReconstructionModel(nn.Module):
                  beta_schedule='cosine',
                  use_pretrained=False,
                  pretrained_type='swin',
-                 freeze_pretrained=True):
+                 freeze_pretrained=True,
+                 use_checkpoint=False):
         super().__init__()
         
         self.use_pretrained = use_pretrained
@@ -24,7 +26,8 @@ class ReconstructionModel(nn.Module):
         self.corruption_detector = CorruptionDetector(
             in_channels=1,
             base_channels=detector_channels,
-            num_blocks=detector_blocks
+            num_blocks=detector_blocks,
+            use_checkpoint=use_checkpoint
         )
         
         self.diffusion_unet = SwinDiffusionUNet(
@@ -58,9 +61,16 @@ class ReconstructionModel(nn.Module):
             self.pretrained_encoder = None
     
     def forward(self, corrupted, gt=None, timesteps=None):
-        predicted_mask = self.corruption_detector(corrupted)
+        target_shape = gt.shape[2:] if gt is not None else corrupted.shape[2:]
         
-        if self.training and gt is not None:
+        if corrupted.shape[2:] != target_shape:
+            corrupted_resized = F.interpolate(corrupted, size=target_shape, mode='trilinear', align_corners=False)
+        else:
+            corrupted_resized = corrupted
+        
+        predicted_mask = self.corruption_detector(corrupted_resized)
+        
+        if gt is not None:
             if timesteps is None:
                 timesteps = torch.randint(0, self.diffusion.num_timesteps, 
                                         (corrupted.shape[0],), device=corrupted.device)
@@ -68,14 +78,14 @@ class ReconstructionModel(nn.Module):
             noise = torch.randn_like(gt)
             x_noisy = self.diffusion.q_sample(gt, timesteps, noise)
             
-            predicted_noise = self.diffusion_unet(x_noisy, timesteps, corrupted, predicted_mask)
+            predicted_noise = self.diffusion_unet(x_noisy, timesteps, corrupted_resized, predicted_mask)
             
             return predicted_noise, noise, predicted_mask
         else:
             clean_volume = self.diffusion.p_sample_loop(
                 self.diffusion_unet,
-                corrupted.shape,
-                corrupted,
+                corrupted_resized.shape,
+                corrupted_resized,
                 predicted_mask,
                 corrupted.device
             )
@@ -84,7 +94,7 @@ class ReconstructionModel(nn.Module):
     def detect_corruption(self, corrupted):
         return self.corruption_detector(corrupted)
     
-    def reconstruct(self, corrupted, mask=None):
+    def reconstruct(self, corrupted, mask=None, num_inference_steps=50):
         if mask is None:
             mask = self.corruption_detector(corrupted)
         
@@ -93,12 +103,13 @@ class ReconstructionModel(nn.Module):
             corrupted.shape,
             corrupted,
             mask,
-            corrupted.device
+            corrupted.device,
+            num_inference_steps=num_inference_steps
         )
         return reconstructed
 
 
-def create_model(config):
+def create_model(config, use_checkpoint=False):
     return ReconstructionModel(
         detector_channels=config.get('detector_channels', 64),
         detector_blocks=config.get('detector_blocks', 4),
@@ -108,5 +119,6 @@ def create_model(config):
         beta_schedule=config.get('beta_schedule', 'cosine'),
         use_pretrained=config.get('use_pretrained', False),
         pretrained_type=config.get('pretrained_type', 'swin'),
-        freeze_pretrained=config.get('freeze_pretrained', True)
+        freeze_pretrained=config.get('freeze_pretrained', True),
+        use_checkpoint=use_checkpoint
     )

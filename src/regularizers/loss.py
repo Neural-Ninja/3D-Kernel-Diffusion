@@ -10,7 +10,7 @@ class ReconstructionLoss(nn.Module):
         self.diffusion_weight = diffusion_weight
         self.kernel_weight = kernel_weight
         self.mse = nn.MSELoss()
-        self.bce = nn.BCELoss()
+        self.bce = nn.BCEWithLogitsLoss()
         
     def forward(self, predicted_noise, noise, predicted_mask, gt_mask, reconstructed=None, gt=None):
         diffusion_loss = self.mse(predicted_noise, noise)
