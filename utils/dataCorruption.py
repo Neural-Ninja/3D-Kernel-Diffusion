@@ -448,48 +448,56 @@ class MRICorruption:
     def process(self) -> Tuple[np.ndarray, np.ndarray, np.ndarray, Dict]:
         gt_normalized = self.raw_volume.copy()
         corrupted = gt_normalized.copy()
-        corruption_map = np.zeros_like(gt_normalized, dtype=np.float32)
-        metadata = {'applied_corruptions': []}
+        noise_mask = np.zeros_like(gt_normalized, dtype=np.float32)
+        slice_mask = np.zeros_like(gt_normalized, dtype=np.float32)
+        
+        metadata = {
+            'applied_corruptions': [],
+            'missing_slices': {}
+        }
         
         if random.random() < self.slice_removal_prob:
-            corrupted, corruption_map, removed_info = self.slices_removal(corrupted)
+            corrupted, slice_mask, removed_info = self.slices_removal(corrupted)
             metadata['slice_removal'] = removed_info
             metadata['applied_corruptions'].append('slice_removal')
+            
+            for axis_key, axis_data in removed_info.items():
+                axis = int(axis_key.split('_')[1])
+                metadata['missing_slices'][axis] = axis_data['indices']
         
         if random.random() < self.noise_prob:
-            corrupted, corruption_map, noise_info = self.add_noise(corrupted, corruption_map)
+            corrupted, noise_mask, noise_info = self.add_noise(corrupted, noise_mask)
             metadata['noise'] = noise_info
             metadata['applied_corruptions'].append('noise')
         
         if random.random() < self.frequency_corruption_prob:
-            corrupted, corruption_map, freq_info = self.k_space_corruption(corrupted, corruption_map)
+            corrupted, noise_mask, freq_info = self.k_space_corruption(corrupted, noise_mask)
             metadata['frequency'] = freq_info
             metadata['applied_corruptions'].append('frequency')
         
         if random.random() < self.motion_artifact_prob:
-            corrupted, corruption_map, motion_info = self.add_motion_artifact(corrupted, corruption_map)
+            corrupted, noise_mask, motion_info = self.add_motion_artifact(corrupted, noise_mask)
             metadata['motion'] = motion_info
             metadata['applied_corruptions'].append('motion')
         
         if random.random() < self.bias_field_prob:
-            corrupted, corruption_map, bias_info = self.add_bias_field(corrupted, corruption_map)
+            corrupted, noise_mask, bias_info = self.add_bias_field(corrupted, noise_mask)
             metadata['bias_field'] = bias_info
             metadata['applied_corruptions'].append('bias_field')
         
-        corruption_map_binary = (corruption_map >= 0.5).astype(np.float32)
+        noise_mask_binary = (noise_mask >= 0.5).astype(np.float32)
         
         gt = gt_normalized * (self.original_max - self.original_min) + self.original_min
         corrupted = corrupted * (self.original_max - self.original_min) + self.original_min
-        
         corrupted = np.clip(corrupted, self.original_min, self.original_max)
         
-        total_voxels = np.prod(corruption_map_binary.shape)
-        corrupted_voxels = np.sum(corruption_map_binary)
+        total_voxels = np.prod(noise_mask_binary.shape)
+        corrupted_voxels = np.sum(noise_mask_binary)
         corruption_percentage = (corrupted_voxels / total_voxels) * 100
         
         brain_mask = gt_normalized > 0
         brain_voxels = np.sum(brain_mask)
-        corrupted_brain_voxels = np.sum(corruption_map_binary[brain_mask])
+        corrupted_brain_voxels = np.sum(noise_mask_binary[brain_mask])
         brain_corruption_percentage = (corrupted_brain_voxels / brain_voxels * 100) if brain_voxels > 0 else 0
         
         metadata['corruption_severity'] = self.corruption_severity
@@ -504,7 +512,7 @@ class MRICorruption:
             'max': float(self.original_max)
         }
         
-        return gt, corrupted, corruption_map_binary, metadata
+        return gt, corrupted, noise_mask_binary, metadata
     
 
     def save_nifti(self, data: np.ndarray, filepath: str):
@@ -517,20 +525,26 @@ class MRICorruption:
     def process_and_save(self, output_dir: str, prefix: str = "mri"):
         output_dir = Path(output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
-        gt, corrupted, corruption_map_binary, metadata = self.process()
+        
+        gt, corrupted, noise_mask, metadata = self.process()
+        
         removed_info = metadata.get('slice_removal', {})
         for axis_key, axis_data in removed_info.items():
             axis = int(axis_key.split('_')[1])
             removed_indices = sorted(axis_data['indices'])
             if removed_indices:
                 corrupted = np.delete(corrupted, removed_indices, axis=axis)
+                noise_mask = np.delete(noise_mask, removed_indices, axis=axis)
+        
         self.save_nifti(gt, output_dir / f"{prefix}_gt.nii.gz")
         self.save_nifti(corrupted, output_dir / f"{prefix}_corrupted.nii.gz")
-        self.save_nifti(corruption_map_binary, output_dir / f"{prefix}_corruption_mask.nii.gz")
+        self.save_nifti(noise_mask, output_dir / f"{prefix}_noise_mask.nii.gz")
+        
         metadata_path = output_dir / f"{prefix}_metadata.json"
         with open(metadata_path, 'w') as f:
             json.dump(metadata, f, indent=2, default=str)
-        return gt, corrupted, corruption_map_binary, metadata
+        
+        return gt, corrupted, noise_mask, metadata
     
 
 class MRIDatasetCorruptor:
@@ -577,11 +591,7 @@ class MRIDatasetCorruptor:
         return gt, corrupted, corruption_map, metadata
 
 
-
-
-
-
-
 """
 Mask: 1 - Corrupted Region, 0 - Non-Corrupted Region
 """
+

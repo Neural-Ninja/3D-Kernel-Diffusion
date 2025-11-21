@@ -1,0 +1,35 @@
+device: cuda
+gpu_ids: [0, 1]
+
+model:
+  in_channels: 1
+  base_channels: 32
+  num_levels: 4
+
+data:
+  data_dir: Data/Preprocessed-Data
+  train_split: 0.7
+  val_split: 0.15
+  num_workers: 4
+  pin_memory: true
+  max_samples: null
+
+optimizer:
+  lr: 0.0001
+  weight_decay: 0.0001
+  lr_min: 1.0e-6
+
+training:
+  epochs: 50
+  batch_size: 8
+  save_dir: checkpoints/noise-predictor
+  checkpoint_interval: 5
+
+lambda_dice: 1.0
+lambda_bce: 1.0
+lambda_focal: 0.5
+
+inference:
+  checkpoint: checkpoints/noise-predictor/best_model.pth
+  output_dir: outputs/noise-predictor
+  threshold: 0.5

@@ -1,0 +1,58 @@
+device: cuda
+
+model:
+  vae_in_channels: 1
+  vae_out_channels: 1
+  vae_n_hiddens: 128
+  vae_downsample: [4, 4, 4]
+  vae_num_groups: 32
+  vae_embedding_dim: 512
+  vae_n_codes: 768
+  vae_checkpoint: checkpoints/vqvae/best_model.pth
+  freeze_vae: true
+  
+  unet_model_channels: 128
+  unet_channel_mult: [1, 2, 4]
+  unet_attention_levels: [1, 2]
+  unet_num_heads: 4
+  unet_time_emb_dim: 512
+  unet_context_dim: 256
+  
+  diffusion_timesteps: 1000
+  diffusion_beta_schedule: cosine
+
+data:
+  data_dir: Data/Preprocessed-Data
+  train_split: 0.7
+  val_split: 0.15
+  num_workers: 8
+  pin_memory: false
+  use_patches: true
+  patch_size: [64, 64, 64]
+  stride: [64, 64, 64]
+  cache_size: 5
+  preload_all: false
+  
+optimizer:
+  lr: 0.00001
+  weight_decay: 0.0001
+  lr_min: 1.0e-7
+
+training:
+  epochs: 30
+  batch_size: 24
+  use_amp: true
+  save_dir: checkpoints/latent_diffusion
+  checkpoint_interval: 1
+  use_amp: true
+  accumulation_steps: 8
+
+inference:
+  checkpoint: checkpoints/latent_diffusion/best_model.pth
+  output_dir: outputs/latent_diffusion
+  use_ddim: true
+  ddim_steps: 50
+  ddim_eta: 0.0
+  use_patches: true
+  patch_size: [64, 64, 64]
+  stride: [32, 32, 32]

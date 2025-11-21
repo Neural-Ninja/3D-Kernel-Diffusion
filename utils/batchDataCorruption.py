@@ -58,7 +58,7 @@ class VolumeCorruptor:
             yaml.dump(config_dict, f, default_flow_style=False)
         
         corruptor = MRICorruption(self.volume, str(config_path))
-        gt, corrupted, mask, metadata = corruptor.process()
+        gt, corrupted, noise_mask, metadata = corruptor.process()
         
         removed_slices = metadata.get('slice_removal', {})
         for axis_key, axis_data in removed_slices.items():
@@ -66,9 +66,10 @@ class VolumeCorruptor:
             indices = sorted(axis_data['indices'])
             if indices:
                 corrupted = np.delete(corrupted, indices, axis=axis)
+                noise_mask = np.delete(noise_mask, indices, axis=axis)
         
         config_path.unlink(missing_ok=True)
-        return gt, corrupted, mask, metadata
+        return gt, corrupted, noise_mask, metadata
 
 
 class BatchDatasetCorruptor:
@@ -152,7 +153,7 @@ class BatchDatasetCorruptor:
                 seed=seed
             )
             
-            gt, corrupted, mask, metadata = corruptor.corrupt()
+            gt, corrupted, noise_mask, metadata = corruptor.corrupt()
             
             filename = self.output_config['naming_format'].format(
                 vol_id=vol_id,
@@ -163,15 +164,15 @@ class BatchDatasetCorruptor:
             if self.output_config['create_subfolders']:
                 gt_path = self.output_folder / 'gt' / f"{filename}.nii.gz"
                 corrupted_path = self.output_folder / 'corrupted' / f"{filename}.nii.gz"
-                mask_path = self.output_folder / 'mask' / f"{filename}.nii.gz"
+                noise_mask_path = self.output_folder / 'mask' / f"{filename}.nii.gz"
             else:
                 gt_path = self.output_folder / f"{filename}_gt.nii.gz"
                 corrupted_path = self.output_folder / f"{filename}_corrupted.nii.gz"
-                mask_path = self.output_folder / f"{filename}_mask.nii.gz"
+                noise_mask_path = self.output_folder / f"{filename}_noise_mask.nii.gz"
             
             self._save_nifti(gt, affine, gt_path)
             self._save_nifti(corrupted, affine, corrupted_path)
-            self._save_nifti(mask, affine, mask_path)
+            self._save_nifti(noise_mask, affine, noise_mask_path)
             
             if self.output_config['save_metadata']:
                 metadata['volume_id'] = vol_id

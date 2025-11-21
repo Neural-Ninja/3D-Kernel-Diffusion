@@ -1,6 +1,7 @@
-Data/
-ZTemp/
-results/
-README.md
-test_model.py
-temp.ipynb
+checkpoints/latent_diffusion/best_model.pth
+checkpoints/noise-predictor/best_model.pth
+checkpoints/slices-model/best_model.pth
+checkpoints/vqvae/best_model.pth
+test_samples/
+src/pretrained-weights/model_swinvit.pt
+src/pretrained-weights/swin_mri_pretrained.pt
